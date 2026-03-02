@@ -6,10 +6,10 @@ module.exports = {
     .setDescription('Delete a number of messages from the channel.')
     .addIntegerOption(option =>
       option.setName('amount')
-        .setDescription('Number of messages to delete (1‑100)')
+        .setDescription('Number of messages to delete (1‑5000)')
         .setRequired(true)
         .setMinValue(1)
-        .setMaxValue(100))
+        .setMaxValue(5000))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .setDMPermission(false),
   async execute(interaction) {

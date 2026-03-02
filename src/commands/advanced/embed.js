@@ -14,7 +14,7 @@ module.exports = {
         .setRequired(true))
     .addStringOption(option =>
       option.setName('color')
-        .setDescription('Hex color (e.g., #FF0000)')
+        .setDescription('Hex color (e.g., #1d466b)')
         .setRequired(false))
     .addStringOption(option =>
       option.setName('footer')

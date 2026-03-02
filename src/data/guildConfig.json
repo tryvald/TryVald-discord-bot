@@ -1,0 +1,12 @@
+{
+  "1429452139381657602": {
+    "guildId": "1429452139381657602"
+  },
+  "1127918387893375048": {
+    "logChannel": "1477000863116689521",
+    "logEvents": {
+      "messageBulkDelete": true,
+      "messageDelete": true
+    }
+  }
+}
