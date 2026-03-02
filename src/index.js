@@ -3,9 +3,23 @@ const fs = require('node:fs');
 const path = require('node:path');
 const config = require('./config');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+// ✅ Include all necessary intents for logging and moderation features
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,                // Required for basic guild info (channels, roles) - ALREADY HAD
+    GatewayIntentBits.GuildMessages,          // ✅ Required for message events (delete, update, bulk delete)
+    GatewayIntentBits.MessageContent,          // ✅ Required to READ message content (for messageUpdate logs)
+    GatewayIntentBits.GuildMembers,            // ✅ Required for member join/leave/update events
+    GatewayIntentBits.GuildVoiceStates,        // ✅ Required for voice state update logs (if you ever add them)
+    GatewayIntentBits.GuildMessageReactions,   // ✅ Optional: if you want to log reactions (future use)
+    GatewayIntentBits.GuildModeration,          // ✅ Optional: for audit log events (if you expand logging)
+    // Add GatewayIntentBits.GuildPresences if you ever need member status updates (privileged intent)
+  ]
+});
+
 client.commands = new Collection();
 
+// Load commands (your existing code remains perfect)
 const commandsPath = path.join(__dirname, 'commands');
 const commandFolders = fs.readdirSync(commandsPath);
 for (const folder of commandFolders) {
@@ -21,6 +35,7 @@ for (const folder of commandFolders) {
   }
 }
 
+// Load events (your existing code remains perfect)
 const eventsPath = path.join(__dirname, 'events');
 const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
 for (const file of eventFiles) {
