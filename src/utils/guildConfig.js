@@ -35,5 +35,9 @@ module.exports = {
       return true;
     }
     return false;
+  },
+  // ✅ Add this new method
+  getAll() {
+    return readConfig();
   }
 };
