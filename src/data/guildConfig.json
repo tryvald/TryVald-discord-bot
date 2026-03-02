@@ -1,6 +1,21 @@
 {
   "1429452139381657602": {
-    "guildId": "1429452139381657602"
+    "guildId": "1429452139381657602",
+    "logChannel": "1429452140551602224",
+    "logEvents": {
+      "messageDelete": true,
+      "messageUpdate": true,
+      "guildMemberAdd": true,
+      "guildMemberRemove": true,
+      "guildMemberUpdate": true,
+      "channelCreate": true,
+      "channelDelete": true,
+      "channelUpdate": true,
+      "roleDelete": true,
+      "roleCreate": true,
+      "roleUpdate": true,
+      "inviteCreate": true
+    }
   },
   "1127918387893375048": {
     "logChannel": "1477000863116689521",
