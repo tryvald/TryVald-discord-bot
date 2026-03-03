@@ -1,14 +1,18 @@
-const { SlashCommandBuilder, ChannelType, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const config = require('../../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('send')
     .setDescription('Send a message to a channel (owner only).')
-    .addChannelOption(option =>
-      option.setName('channel')
-        .setDescription('The channel to send the message to')
-        .addChannelTypes(ChannelType.GuildText)
+    .setDMPermission(true) // Allow in DMs
+    .addStringOption(option =>
+      option.setName('server_id')
+        .setDescription('The ID of the server')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('channel_id')
+        .setDescription('The ID of the text channel')
         .setRequired(true))
     .addStringOption(option =>
       option.setName('message')
@@ -20,12 +24,23 @@ module.exports = {
       return interaction.reply({ content: '❌ Only the bot owner can use this command.', flags: MessageFlags.Ephemeral });
     }
 
-    const channel = interaction.options.getChannel('channel');
+    const guildId = interaction.options.getString('server_id');
+    const channelId = interaction.options.getString('channel_id');
     const message = interaction.options.getString('message');
+
+    const guild = interaction.client.guilds.cache.get(guildId);
+    if (!guild) {
+      return interaction.reply({ content: `❌ I am not in server with ID \`${guildId}\`.`, flags: MessageFlags.Ephemeral });
+    }
+
+    const channel = guild.channels.cache.get(channelId);
+    if (!channel || !channel.isTextBased()) {
+      return interaction.reply({ content: `❌ Invalid or non‑text channel ID \`${channelId}\`.`, flags: MessageFlags.Ephemeral });
+    }
 
     try {
       await channel.send(message);
-      await interaction.reply({ content: `✅ Message sent to ${channel}.`, flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: `✅ Message sent to ${channel.name} in ${guild.name}.`, flags: MessageFlags.Ephemeral });
     } catch (error) {
       console.error(error);
       await interaction.reply({ content: '❌ Failed to send message. Check permissions.', flags: MessageFlags.Ephemeral });

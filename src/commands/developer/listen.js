@@ -6,6 +6,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('listen')
     .setDescription('Toggle listening to a server (owner only).')
+    .setDMPermission(true)
     .addStringOption(option =>
       option.setName('server_id')
         .setDescription('The ID of the server to listen to')
@@ -19,7 +20,7 @@ module.exports = {
     const guildId = interaction.options.getString('server_id');
     const guild = interaction.client.guilds.cache.get(guildId);
     if (!guild) {
-      return interaction.reply({ content: '❌ I am not in that server.', flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: `❌ I am not in server with ID \`${guildId}\`.`, flags: MessageFlags.Ephemeral });
     }
 
     const isListening = ownerConfig.isListening(guildId);
@@ -28,7 +29,7 @@ module.exports = {
       await interaction.reply({ content: `🔇 Stopped listening to **${guild.name}** (${guildId}).`, flags: MessageFlags.Ephemeral });
     } else {
       ownerConfig.addListeningGuild(guildId);
-      await interaction.reply({ content: `🎧 Now listening to **${guild.name}** (${guildId}). All messages will be forwarded to your DMs.`, flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: `🎧 Now listening to **${guild.name}**. All messages will be forwarded to your DMs.`, flags: MessageFlags.Ephemeral });
     }
   },
 };
