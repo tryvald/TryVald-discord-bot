@@ -1,19 +1,15 @@
 const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const guildConfig = require('../../utils/guildConfig');
 
-// Helper to parse emoji input (unicode or custom)
 function parseEmoji(emojiString) {
   if (!emojiString) return null;
-  // Check for custom emoji format <:name:id>
   const customMatch = emojiString.match(/^<a?:(\w+):(\d+)>$/);
   if (customMatch) {
     return { id: customMatch[2], name: customMatch[1], animated: emojiString.startsWith('<a:') };
   }
-  // Assume unicode
   return { name: emojiString };
 }
 
-// Helper to build buttons from roles array
 function buildButtons(roles, messageId) {
   const rows = [];
   let currentRow = new ActionRowBuilder();
@@ -45,10 +41,10 @@ module.exports = {
     .setDescription('Manage reaction role panels.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .setDMPermission(false)
-    // Subcommand: create (single-step with up to 10 roles)
+    // Quick create (up to 6 roles)
     .addSubcommand(sub =>
       sub.setName('create')
-        .setDescription('Create a reaction role panel (quick setup, up to 10 roles).')
+        .setDescription('Create a reaction role panel (quick setup, up to 6 roles).')
         .addChannelOption(opt =>
           opt.setName('channel')
             .setDescription('Channel to send the panel')
@@ -76,13 +72,13 @@ module.exports = {
             .setRequired(false))
         .addIntegerOption(opt =>
           opt.setName('max_selections')
-            .setDescription('Maximum roles a user can have (0 = unlimited, 1 = single, etc.)')
+            .setDescription('Maximum roles a user can have (0 = unlimited, 1 = single)')
             .setRequired(false)
             .setMinValue(0))
         // Role 1
         .addRoleOption(opt => opt.setName('role1').setDescription('Role 1').setRequired(false))
         .addStringOption(opt => opt.setName('label1').setDescription('Button label for role 1').setRequired(false))
-        .addStringOption(opt => opt.setName('emoji1').setDescription('Emoji for role 1 (unicode or custom)').setRequired(false))
+        .addStringOption(opt => opt.setName('emoji1').setDescription('Emoji for role 1').setRequired(false))
         // Role 2
         .addRoleOption(opt => opt.setName('role2').setDescription('Role 2').setRequired(false))
         .addStringOption(opt => opt.setName('label2').setDescription('Button label for role 2').setRequired(false))
@@ -102,24 +98,8 @@ module.exports = {
         // Role 6
         .addRoleOption(opt => opt.setName('role6').setDescription('Role 6').setRequired(false))
         .addStringOption(opt => opt.setName('label6').setDescription('Button label for role 6').setRequired(false))
-        .addStringOption(opt => opt.setName('emoji6').setDescription('Emoji for role 6').setRequired(false))
-        // Role 7
-        .addRoleOption(opt => opt.setName('role7').setDescription('Role 7').setRequired(false))
-        .addStringOption(opt => opt.setName('label7').setDescription('Button label for role 7').setRequired(false))
-        .addStringOption(opt => opt.setName('emoji7').setDescription('Emoji for role 7').setRequired(false))
-        // Role 8
-        .addRoleOption(opt => opt.setName('role8').setDescription('Role 8').setRequired(false))
-        .addStringOption(opt => opt.setName('label8').setDescription('Button label for role 8').setRequired(false))
-        .addStringOption(opt => opt.setName('emoji8').setDescription('Emoji for role 8').setRequired(false))
-        // Role 9
-        .addRoleOption(opt => opt.setName('role9').setDescription('Role 9').setRequired(false))
-        .addStringOption(opt => opt.setName('label9').setDescription('Button label for role 9').setRequired(false))
-        .addStringOption(opt => opt.setName('emoji9').setDescription('Emoji for role 9').setRequired(false))
-        // Role 10
-        .addRoleOption(opt => opt.setName('role10').setDescription('Role 10').setRequired(false))
-        .addStringOption(opt => opt.setName('label10').setDescription('Button label for role 10').setRequired(false))
-        .addStringOption(opt => opt.setName('emoji10').setDescription('Emoji for role 10').setRequired(false)))
-    // Subcommand: delete
+        .addStringOption(opt => opt.setName('emoji6').setDescription('Emoji for role 6').setRequired(false)))
+    // Delete
     .addSubcommand(sub =>
       sub.setName('delete')
         .setDescription('Delete a reaction role panel by message ID.')
@@ -142,14 +122,12 @@ module.exports = {
       const footer = interaction.options.getString('footer');
       const maxSelections = interaction.options.getInteger('max_selections') ?? 0;
 
-      // Collect roles (up to 10)
       const roles = [];
-      for (let i = 1; i <= 10; i++) {
+      for (let i = 1; i <= 6; i++) {
         const role = interaction.options.getRole(`role${i}`);
         const label = interaction.options.getString(`label${i}`);
         const emojiStr = interaction.options.getString(`emoji${i}`);
         if (role && label) {
-          // Validate role hierarchy
           if (!interaction.guild.members.me.roles.highest.comparePositionTo(role) > 0) {
             return interaction.reply({ content: `❌ I cannot assign role ${role} (it's higher than my highest role).`, flags: MessageFlags.Ephemeral });
           }
@@ -162,7 +140,6 @@ module.exports = {
         return interaction.reply({ content: '❌ You must provide at least one role with a label.', flags: MessageFlags.Ephemeral });
       }
 
-      // Create embed
       const embed = new EmbedBuilder()
         .setTitle(title)
         .setDescription(description)
@@ -171,15 +148,11 @@ module.exports = {
       if (image) embed.setImage(image);
       if (footer) embed.setFooter({ text: footer });
 
-      // Send message with buttons
-      const message = await channel.send({ embeds: [embed], components: [] }); // we'll add buttons after we have messageId
+      const message = await channel.send({ embeds: [embed], components: [] });
       const panelId = message.id;
-
-      // Build buttons using panelId
       const rows = buildButtons(roles, panelId);
       await message.edit({ components: rows });
 
-      // Store panel data
       config.reactionPanels[panelId] = {
         channelId: channel.id,
         title,
@@ -188,7 +161,7 @@ module.exports = {
         image,
         footer,
         maxSelections,
-        roles: roles.map((r, idx) => ({ ...r, index: idx })), // keep index for button mapping
+        roles: roles.map((r, idx) => ({ ...r, index: idx })),
       };
       guildConfig.set(guildId, 'reactionPanels', config.reactionPanels);
 
@@ -205,9 +178,7 @@ module.exports = {
         try {
           const msg = await channel.messages.fetch(messageId);
           await msg.delete();
-        } catch (e) {
-          // message already deleted, ignore
-        }
+        } catch (e) {}
       }
       delete config.reactionPanels[messageId];
       guildConfig.set(guildId, 'reactionPanels', config.reactionPanels);
