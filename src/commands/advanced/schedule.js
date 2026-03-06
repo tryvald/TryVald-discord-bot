@@ -7,8 +7,8 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
 }
 
-// Helper to convert 12-hour time to cron minute/hour
-function convertToCronMinuteHour(hour, minute, ampm) {
+// Helper to convert 12-hour time to 24-hour for cron
+function convertTo24Hour(hour, minute, ampm) {
   let hour24 = hour;
   if (ampm === 'PM' && hour !== 12) hour24 += 12;
   if (ampm === 'AM' && hour === 12) hour24 = 0;
@@ -31,6 +31,7 @@ module.exports = {
     .addSubcommand(sub =>
       sub.setName('add')
         .setDescription('Add a new scheduled message.')
+        // Required options first
         .addChannelOption(opt =>
           opt.setName('channel')
             .setDescription('Channel to send the message')
@@ -45,10 +46,6 @@ module.exports = {
               { name: 'Daily', value: 'daily' },
               { name: 'Weekly', value: 'weekly' }
             ))
-        .addStringOption(opt =>
-          opt.setName('date')
-            .setDescription('Date for once (YYYY-MM-DD, e.g. 2025-12-25)')
-            .setRequired(false))
         .addIntegerOption(opt =>
           opt.setName('hour')
             .setDescription('Hour (1-12)')
@@ -70,6 +67,15 @@ module.exports = {
               { name: 'PM', value: 'PM' }
             ))
         .addStringOption(opt =>
+          opt.setName('message')
+            .setDescription('Message text')
+            .setRequired(true))
+        // Optional options after all required
+        .addStringOption(opt =>
+          opt.setName('date')
+            .setDescription('Date for once (YYYY-MM-DD, e.g. 2025-12-25)')
+            .setRequired(false))
+        .addStringOption(opt =>
           opt.setName('day')
             .setDescription('Day of week (required if weekly)')
             .setRequired(false)
@@ -82,10 +88,6 @@ module.exports = {
               { name: 'Friday', value: 'friday' },
               { name: 'Saturday', value: 'saturday' }
             ))
-        .addStringOption(opt =>
-          opt.setName('message')
-            .setDescription('Message text')
-            .setRequired(true))
         .addStringOption(opt =>
           opt.setName('embed_title')
             .setDescription('Embed title (optional)')
@@ -162,8 +164,8 @@ module.exports = {
         return interaction.reply({ content: '❌ Day of week is required for weekly schedule.', flags: MessageFlags.Ephemeral });
       }
 
-      // Convert time
-      const { minute: cronMin, hour: cronHour } = convertToCronMinuteHour(hour, minute, ampm);
+      // Convert time to 24-hour
+      const { minute: cronMin, hour: cronHour } = convertTo24Hour(hour, minute, ampm);
 
       let cronExpr = null;
       let scheduledTime = null;
@@ -190,8 +192,7 @@ module.exports = {
       // Build embed data
       const embedData = {};
       if (embedTitle) embedData.title = embedTitle;
-      if (embedDesc) embedData.description = embedDesc;
-      if (embedTitle) embedData.title = embedTitle;
+      if (embedDesc) embedData.description = embedDesc; // optional extra description? We'll store it.
       if (embedColor) embedData.color = embedColor;
       if (embedImage) embedData.image = embedImage;
       if (embedFooter) embedData.footer = embedFooter;
