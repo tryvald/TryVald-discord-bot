@@ -1,23 +1,21 @@
-process.env.FFMPEG_PATH = require('ffmpeg-static');
-
 const { EndBehaviorType, createAudioResource, StreamType } = require('@discordjs/voice');
 const prism = require('prism-media');
 const { Readable } = require('stream');
 const axios = require('axios');
 const FormData = require('form-data');
 const { callDeepSeek } = require('../deepseek');
+const { getTTSAudio } = require('../tts');
 
-// Google TTS endpoint
-const GOOGLE_TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
+// Wit.ai endpoint
+const WIT_AI_URL = 'https://api.wit.ai/speech';
 
 // Store active listening states per guild
 const listeningState = new Map();
-
-// FIX: per-user concurrency guard — prevents overlapping pipelines
+// Per-user concurrency guard
 const processingUsers = new Set();
 
 /**
- * Starts listening to voice activity in a connection.
+ * Starts listening to voice activity.
  * @param {VoiceConnection} connection
  * @param {AudioPlayer} player
  * @param {string} guildId
@@ -36,8 +34,6 @@ async function startListening(connection, player, guildId, client) {
 
   connection.receiver.speaking.on('start', async (userId) => {
     if (!state.active) return;
-
-    // FIX: skip if this user's pipeline is still running
     if (processingUsers.has(userId)) return;
     processingUsers.add(userId);
 
@@ -49,7 +45,7 @@ async function startListening(connection, player, guildId, client) {
 
     console.log(`🎙️ ${user.tag} started speaking`);
 
-    // Subscribe to audio stream for this user
+    // Subscribe to audio stream
     const audioStream = connection.receiver.subscribe(userId, {
       end: {
         behavior: EndBehaviorType.AfterSilence,
@@ -61,7 +57,6 @@ async function startListening(connection, player, guildId, client) {
     const opusDecoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 });
     const pcmStream = audioStream.pipe(opusDecoder);
 
-    // FIX: handle stream errors so pipeline doesn't silently hang
     pcmStream.on('error', (err) => {
       console.error('PCM stream error:', err.message);
       processingUsers.delete(userId);
@@ -78,21 +73,21 @@ async function startListening(connection, player, guildId, client) {
         // Convert PCM → WAV
         const wavBuffer = pcmToWav(Buffer.concat(chunks), 48000, 2);
 
-        // --- Step 1: Speech-to-text (Whisper) ---
+        // --- Step 1: Speech‑to‑text (Wit.ai) ---
         let transcript;
         try {
           const form = new FormData();
           form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
-          form.append('model', 'whisper-1');
-          const res = await axios.post('https://api.openai.com/v1/audio/transcriptions', form, {
+          const res = await axios.post(WIT_AI_URL, form, {
             headers: {
-              'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+              'Authorization': `Bearer ${process.env.WIT_AI_TOKEN}`,
               ...form.getHeaders(),
             },
           });
+          // Wit.ai returns a JSON with 'text' field
           transcript = res.data.text;
         } catch (err) {
-          console.error('Whisper error:', err.response?.data || err.message);
+          console.error('Wit.ai error:', err.response?.data || err.message);
           return;
         }
 
@@ -104,32 +99,20 @@ async function startListening(connection, player, guildId, client) {
         if (!reply) return;
         console.log(`[${guildId}] Bot reply: ${reply}`);
 
-        // --- Step 3: Text-to-speech (Google TTS) ---
-        let audioContent;
+        // --- Step 3: Text‑to‑speech (gTTS) ---
+        let audioStreamTTS;
         try {
-          const ttsRes = await axios.post(
-            `${GOOGLE_TTS_URL}?key=${process.env.GOOGLE_API_KEY}`,
-            {
-              input: { text: reply },
-              voice: { languageCode: 'fr-FR', name: 'fr-FR-Neural2-A' },
-              audioConfig: { audioEncoding: 'MP3' },
-            }
-          );
-          audioContent = ttsRes.data.audioContent;
+          audioStreamTTS = await getTTSAudio(reply);
         } catch (err) {
-          console.error('TTS error:', err.response?.data || err.message);
+          console.error('TTS error:', err.message);
           return;
         }
 
-        // FIX: renamed to ttsStream to avoid variable name collision with audioStream above
-        const audioBuffer = Buffer.from(audioContent, 'base64');
-        const ttsStream = Readable.from(audioBuffer);
-        // FIX: use StreamType.Arbitrary instead of raw 'mp3'
-        const resource = createAudioResource(ttsStream, { inputType: StreamType.Arbitrary });
+        // Play the audio
+        const resource = createAudioResource(audioStreamTTS, { inputType: StreamType.Arbitrary });
         player.play(resource);
 
       } finally {
-        // FIX: always release the user lock, even if something threw
         processingUsers.delete(userId);
       }
     });
@@ -138,27 +121,15 @@ async function startListening(connection, player, guildId, client) {
   return state;
 }
 
-/**
- * Stops listening for a guild.
- * @param {string} guildId
- */
 function stopListening(guildId) {
   const state = listeningState.get(guildId);
   if (state) {
     state.active = false;
     listeningState.delete(guildId);
   }
-  // Clean up any stuck processing users when leaving
   processingUsers.clear();
 }
 
-/**
- * Converts a raw PCM buffer to a WAV buffer.
- * @param {Buffer} pcmBuffer
- * @param {number} sampleRate
- * @param {number} channels
- * @returns {Buffer}
- */
 function pcmToWav(pcmBuffer, sampleRate, channels) {
   const byteRate = sampleRate * channels * 2;
   const blockAlign = channels * 2;
@@ -166,19 +137,19 @@ function pcmToWav(pcmBuffer, sampleRate, channels) {
   const totalSize = 44 + dataSize;
   const wavBuffer = Buffer.alloc(totalSize);
 
-  // RIFF chunk descriptor
+  // RIFF chunk
   wavBuffer.write('RIFF', 0);
   wavBuffer.writeUInt32LE(totalSize - 8, 4);
   wavBuffer.write('WAVE', 8);
   // fmt subchunk
   wavBuffer.write('fmt ', 12);
   wavBuffer.writeUInt32LE(16, 16);
-  wavBuffer.writeUInt16LE(1, 20);           // PCM format
+  wavBuffer.writeUInt16LE(1, 20);
   wavBuffer.writeUInt16LE(channels, 22);
   wavBuffer.writeUInt32LE(sampleRate, 24);
   wavBuffer.writeUInt32LE(byteRate, 28);
   wavBuffer.writeUInt16LE(blockAlign, 32);
-  wavBuffer.writeUInt16LE(16, 34);          // 16-bit samples
+  wavBuffer.writeUInt16LE(16, 34);
   // data subchunk
   wavBuffer.write('data', 36);
   wavBuffer.writeUInt32LE(dataSize, 40);

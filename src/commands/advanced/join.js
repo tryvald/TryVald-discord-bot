@@ -12,25 +12,14 @@ const {
   StreamType,
 } = require('@discordjs/voice');
 const { startListening } = require('../../utils/voice/listen');
-const axios = require('axios');
+const { getTTSAudio } = require('../../utils/tts');
 const { Readable } = require('stream');
 
-// Helper to play a short TTS welcome message (uses Google TTS)
+// Helper to play a short TTS welcome message (uses the same gTTS)
 async function playWelcomeMessage(player, text) {
   try {
-    const GOOGLE_TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
-    const response = await axios.post(
-      `${GOOGLE_TTS_URL}?key=${process.env.GOOGLE_API_KEY}`,
-      {
-        input: { text },
-        voice: { languageCode: 'fr-FR', name: 'fr-FR-Neural2-A' },
-        audioConfig: { audioEncoding: 'MP3' },
-      }
-    );
-    const audioBuffer = Buffer.from(response.data.audioContent, 'base64');
-    const ttsStream = Readable.from(audioBuffer);
-    // FIX: use StreamType.Arbitrary instead of raw 'mp3'
-    const resource = createAudioResource(ttsStream, { inputType: StreamType.Arbitrary });
+    const audioStream = await getTTSAudio(text);
+    const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
     player.play(resource);
     console.log('Welcome message played');
   } catch (err) {
@@ -56,7 +45,6 @@ module.exports = {
       ? interaction.guild.channels.cache.get(channelId)
       : interaction.member.voice.channel;
 
-    // FIX: use ChannelType.GuildVoice instead of raw number 2
     if (!voiceChannel || voiceChannel.type !== ChannelType.GuildVoice) {
       return interaction.editReply({ content: 'You need to be in a voice channel or specify a valid voice channel ID.', ephemeral: true });
     }
@@ -65,7 +53,6 @@ module.exports = {
       return interaction.editReply({ content: 'I cannot join that voice channel (missing permissions).', ephemeral: true });
     }
 
-    // Already connected?
     const existingConnection = interaction.client.voiceConnections?.get(interaction.guild.id);
     if (existingConnection) {
       return interaction.editReply({ content: 'I am already in a voice channel. Use `/leave` first.', ephemeral: true });
@@ -80,30 +67,25 @@ module.exports = {
         selfMute: false,
       });
 
-      // Store connection on client
       if (!interaction.client.voiceConnections) interaction.client.voiceConnections = new Map();
       interaction.client.voiceConnections.set(interaction.guild.id, connection);
 
-      // Wait until connection is ready (timeout 10s)
       await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
 
-      // Create and subscribe audio player
       const player = createAudioPlayer();
       connection.subscribe(player);
 
-      // Play welcome message after 1s to confirm audio output
+      // Play welcome message after 1 second
       setTimeout(() => {
         playWelcomeMessage(player, 'Je suis connecté au salon vocal.');
       }, 1000);
 
-      // Start the full voice pipeline (STT → AI → TTS)
       await startListening(connection, player, interaction.guild.id, interaction.client);
 
       await interaction.editReply(`🎤 Joined <#${voiceChannel.id}> and listening!`);
     } catch (error) {
       console.error('Voice join error:', error);
       await interaction.editReply({ content: 'Failed to join voice channel or start listening. Check logs.', ephemeral: true });
-      // Clean up partial connection
       const conn = interaction.client.voiceConnections?.get(interaction.guild.id);
       if (conn) {
         conn.destroy();
