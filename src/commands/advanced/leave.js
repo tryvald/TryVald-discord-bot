@@ -1,3 +1,4 @@
+console.log('leave command loaded')
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { stopListening } = require('../../utils/voice/listen');
 
