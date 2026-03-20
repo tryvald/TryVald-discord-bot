@@ -41,7 +41,7 @@ async function startListening(connection, player, guildId, client) {
       },
     });
 
-    // Collect raw Opus packets for debugging
+    // Collect raw Opus packets
     const packets = [];
     audioStream.on('data', (packet) => {
       packets.push(packet);
@@ -57,15 +57,13 @@ async function startListening(connection, player, guildId, client) {
 
         console.log(`Received ${packets.length} Opus packets, first packet size: ${packets[0]?.length}`);
 
-        // Attempt decoding with prism (auto frame size)
+        // Try decoding with prism
         let pcmBuffer = null;
-        let decodeError = null;
-
         try {
           const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: null });
           const pcmChunks = [];
           decoder.on('data', (chunk) => pcmChunks.push(chunk));
-          decoder.on('error', (err) => { throw err; });
+          decoder.on('error', (err) => { console.error('Prism decoder error:', err.message); });
           for (const packet of packets) {
             decoder.write(packet);
           }
@@ -73,12 +71,11 @@ async function startListening(connection, player, guildId, client) {
           pcmBuffer = Buffer.concat(pcmChunks);
           console.log(`Prism decoded: ${pcmBuffer.length} bytes PCM`);
         } catch (err) {
-          decodeError = err;
-          console.error('Prism decode error:', err.message);
+          console.error('Prism decode exception:', err.message);
         }
 
-        // Fallback to OpusEncoder if prism failed
-        if (!pcmBuffer && decodeError) {
+        // Fallback to OpusEncoder if prism failed or produced no data
+        if (!pcmBuffer || pcmBuffer.length === 0) {
           try {
             const encoder = new OpusEncoder(48000, 2);
             const pcmChunks = [];

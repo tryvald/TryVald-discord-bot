@@ -77,8 +77,9 @@ module.exports = {
 
       // Play welcome message after 1 second
       setTimeout(() => {
-        playWelcomeMessage(player, 'Lêche ma chatte connard');
-      }, 2000);
+        console.log('Attempting to play welcome message');
+        playWelcomeMessage(player, 'Je suis connecté au salon vocal.');
+    }, 1000);
 
       await startListening(connection, player, interaction.guild.id, interaction.client);
 
