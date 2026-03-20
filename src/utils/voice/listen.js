@@ -1,4 +1,5 @@
 const { EndBehaviorType, createAudioResource, StreamType } = require('@discordjs/voice');
+const prism = require('prism-media');
 const { OpusEncoder } = require('@discordjs/opus');
 const { Readable } = require('stream');
 const axios = require('axios');
@@ -40,34 +41,67 @@ async function startListening(connection, player, guildId, client) {
       },
     });
 
-    const opusEncoder = new OpusEncoder(48000, 2);
-    const pcmChunks = [];
-    let packets = 0;
-
-    audioStream.on('data', (opusPacket) => {
-      try {
-        const pcm = opusEncoder.decode(opusPacket);
-        pcmChunks.push(pcm);
-        packets++;
-      } catch (err) {
-        console.error('Opus decode error:', err.message);
-      }
+    // Collect raw Opus packets for debugging
+    const packets = [];
+    audioStream.on('data', (packet) => {
+      packets.push(packet);
     });
 
     audioStream.on('end', async () => {
       try {
         if (!state.active) return;
-        if (pcmChunks.length === 0) {
+        if (packets.length === 0) {
           processingUsers.delete(userId);
           return;
         }
 
-        console.log(`Received ${packets} Opus packets, ${pcmChunks.length} PCM chunks`);
+        console.log(`Received ${packets.length} Opus packets, first packet size: ${packets[0]?.length}`);
 
-        const totalLength = pcmChunks.reduce((sum, chunk) => sum + chunk.length, 0);
-        const pcmBuffer = Buffer.concat(pcmChunks, totalLength);
+        // Attempt decoding with prism (auto frame size)
+        let pcmBuffer = null;
+        let decodeError = null;
+
+        try {
+          const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: null });
+          const pcmChunks = [];
+          decoder.on('data', (chunk) => pcmChunks.push(chunk));
+          decoder.on('error', (err) => { throw err; });
+          for (const packet of packets) {
+            decoder.write(packet);
+          }
+          decoder.end();
+          pcmBuffer = Buffer.concat(pcmChunks);
+          console.log(`Prism decoded: ${pcmBuffer.length} bytes PCM`);
+        } catch (err) {
+          decodeError = err;
+          console.error('Prism decode error:', err.message);
+        }
+
+        // Fallback to OpusEncoder if prism failed
+        if (!pcmBuffer && decodeError) {
+          try {
+            const encoder = new OpusEncoder(48000, 2);
+            const pcmChunks = [];
+            for (const packet of packets) {
+              const pcm = encoder.decode(packet);
+              pcmChunks.push(pcm);
+            }
+            pcmBuffer = Buffer.concat(pcmChunks);
+            console.log(`OpusEncoder decoded: ${pcmBuffer.length} bytes PCM`);
+          } catch (err) {
+            console.error('OpusEncoder decode error:', err.message);
+          }
+        }
+
+        if (!pcmBuffer || pcmBuffer.length === 0) {
+          console.error('No PCM data after decoding');
+          processingUsers.delete(userId);
+          return;
+        }
+
         const wavBuffer = pcmToWav(pcmBuffer, 48000, 2);
 
+        // Send to Wit.ai
         let transcript;
         try {
           const res = await axios.post(WIT_AI_URL, wavBuffer, {
