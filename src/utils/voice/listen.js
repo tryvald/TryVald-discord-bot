@@ -1,7 +1,6 @@
 const { EndBehaviorType, createAudioResource, StreamType } = require('@discordjs/voice');
 const prism = require('prism-media');
 const { OpusEncoder } = require('@discordjs/opus');
-const { Readable } = require('stream');
 const axios = require('axios');
 const { callDeepSeek } = require('../deepseek');
 const { getTTSAudio } = require('../tts');
@@ -41,11 +40,9 @@ async function startListening(connection, player, guildId, client) {
       },
     });
 
-    // Collect raw Opus packets
     const packets = [];
-    audioStream.on('data', (packet) => {
-      packets.push(packet);
-    });
+    audioStream.on('data', (packet) => packets.push(packet));
+    audioStream.on('error', (err) => console.error('Audio stream error:', err));
 
     audioStream.on('end', async () => {
       try {
@@ -55,26 +52,31 @@ async function startListening(connection, player, guildId, client) {
           return;
         }
 
-        console.log(`Received ${packets.length} Opus packets, first packet size: ${packets[0]?.length}`);
+        console.log(`Received ${packets.length} Opus packets, first size: ${packets[0]?.length}`);
 
-        // Try decoding with prism
+        // Attempt decoding
         let pcmBuffer = null;
+        let decodeError = null;
+
+        // Try prism first
         try {
           const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: null });
           const pcmChunks = [];
           decoder.on('data', (chunk) => pcmChunks.push(chunk));
-          decoder.on('error', (err) => { console.error('Prism decoder error:', err.message); });
-          for (const packet of packets) {
-            decoder.write(packet);
-          }
+          decoder.on('error', (err) => { decodeError = err; });
+          for (const packet of packets) decoder.write(packet);
           decoder.end();
           pcmBuffer = Buffer.concat(pcmChunks);
-          console.log(`Prism decoded: ${pcmBuffer.length} bytes PCM`);
+          if (pcmBuffer.length > 0) {
+            console.log(`Prism decoded: ${pcmBuffer.length} bytes PCM`);
+          } else {
+            console.log('Prism decoded 0 bytes');
+          }
         } catch (err) {
-          console.error('Prism decode exception:', err.message);
+          console.error('Prism exception:', err);
         }
 
-        // Fallback to OpusEncoder if prism failed or produced no data
+        // Fallback to OpusEncoder
         if (!pcmBuffer || pcmBuffer.length === 0) {
           try {
             const encoder = new OpusEncoder(48000, 2);
@@ -86,7 +88,7 @@ async function startListening(connection, player, guildId, client) {
             pcmBuffer = Buffer.concat(pcmChunks);
             console.log(`OpusEncoder decoded: ${pcmBuffer.length} bytes PCM`);
           } catch (err) {
-            console.error('OpusEncoder decode error:', err.message);
+            console.error('OpusEncoder error:', err);
           }
         }
 
@@ -97,10 +99,12 @@ async function startListening(connection, player, guildId, client) {
         }
 
         const wavBuffer = pcmToWav(pcmBuffer, 48000, 2);
+        console.log(`WAV buffer size: ${wavBuffer.length} bytes`);
 
-        // Send to Wit.ai
+        // --- Wit.ai STT ---
         let transcript;
         try {
+          console.log('Sending to Wit.ai...');
           const res = await axios.post(WIT_AI_URL, wavBuffer, {
             headers: {
               'Authorization': `Bearer ${process.env.WIT_AI_TOKEN}`,
@@ -108,6 +112,7 @@ async function startListening(connection, player, guildId, client) {
             },
           });
           transcript = res.data.text;
+          console.log(`Wit.ai response: ${transcript}`);
         } catch (err) {
           console.error('Wit.ai error:', err.response?.data || err.message);
           processingUsers.delete(userId);
@@ -115,12 +120,14 @@ async function startListening(connection, player, guildId, client) {
         }
 
         if (!transcript?.trim()) {
+          console.log('Empty transcript');
           processingUsers.delete(userId);
           return;
         }
 
         console.log(`[${guildId}] ${user.tag}: ${transcript}`);
 
+        // --- DeepSeek AI ---
         const reply = await callDeepSeek(transcript);
         if (!reply) {
           processingUsers.delete(userId);
@@ -128,9 +135,11 @@ async function startListening(connection, player, guildId, client) {
         }
         console.log(`[${guildId}] Bot reply: ${reply}`);
 
+        // --- TTS ---
         let audioStreamTTS;
         try {
           audioStreamTTS = await getTTSAudio(reply);
+          console.log('TTS stream obtained');
         } catch (err) {
           console.error('TTS error:', err.message);
           processingUsers.delete(userId);
@@ -139,17 +148,13 @@ async function startListening(connection, player, guildId, client) {
 
         const resource = createAudioResource(audioStreamTTS, { inputType: StreamType.Arbitrary });
         player.play(resource);
+        console.log('Played TTS response');
 
       } catch (err) {
         console.error('Voice pipeline error:', err);
       } finally {
         processingUsers.delete(userId);
       }
-    });
-
-    audioStream.on('error', (err) => {
-      console.error('Audio stream error:', err);
-      processingUsers.delete(userId);
     });
   });
 
