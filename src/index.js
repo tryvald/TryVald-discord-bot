@@ -1,10 +1,10 @@
 const scheduler = require('./utils/scheduler');
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require('discord.js');
 const fs = require('node:fs');
 const path = require('node:path');
 const config = require('./config');
 const guildConfig = require('./utils/guildConfig');
-const logger = require('./utils/logger'); // Import logger
+const logger = require('./utils/logger');
 
 const client = new Client({
   intents: [
@@ -14,14 +14,15 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessageReactions,
-    GatewayIntentBits.DirectMessages, // ✅ Add to receive DMs
+    GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildModeration,
   ]
 });
 
 client.commands = new Collection();
+client.voiceConnections = new Map();  // ✅ Add this line for voice connections
 
-// Helper function to unlock a channel (unchanged, but add logging)
+// Helper function to unlock a channel (unchanged)
 async function unlockChannel(guildId, channelId, reason = 'Auto‑unlock (duration expired)') {
   try {
     const guild = await client.guilds.fetch(guildId);
@@ -46,7 +47,7 @@ async function unlockChannel(guildId, channelId, reason = 'Auto‑unlock (durati
   }
 }
 
-// Load commands (add logging)
+// Load commands
 const commandsPath = path.join(__dirname, 'commands');
 const commandFolders = fs.readdirSync(commandsPath);
 logger.info(`Loading commands from ${commandsPath}`);
@@ -67,7 +68,7 @@ for (const folder of commandFolders) {
 }
 logger.info(`Loaded ${client.commands.size} commands`);
 
-// Load events (add logging)
+// Load events
 const eventsPath = path.join(__dirname, 'events');
 const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
 logger.info(`Loading events from ${eventsPath}`);
@@ -84,7 +85,7 @@ for (const file of eventFiles) {
 }
 logger.info(`Loaded ${eventFiles.length} event handlers`);
 
-// Restore scheduled unlocks (with logging)
+// Restore scheduled unlocks
 const allGuildConfigs = guildConfig.getAll();
 const now = Date.now();
 let scheduledCount = 0;
@@ -106,13 +107,13 @@ for (const [guildId, guildData] of Object.entries(allGuildConfigs)) {
 }
 logger.info(`Restored ${scheduledCount} scheduled unlocks`);
 
-// Log when bot is ready
+// Bot ready event
 client.once('ready', () => {
   logger.info(`✅ Logged in as ${client.user.tag} (ID: ${client.user.id})`);
   logger.info(`Bot is in ${client.guilds.cache.size} guilds`);
 });
 
-// Log any errors
+// Error handlers
 client.on('error', (error) => {
   logger.error('Client error:', error);
 });
@@ -124,6 +125,7 @@ process.on('unhandledRejection', (error) => {
 // Load scheduled messages
 scheduler.loadAllSchedules(client);
 
+// Login
 client.login(config.token).catch(error => {
   logger.error('Failed to login:', error);
 });
