@@ -9,7 +9,7 @@ const WIT_AI_URL = 'https://api.wit.ai/speech?v=20231231';
 const listeningState = new Map();
 const processingUsers = new Set();
 
-// Resample PCM to a new sample rate (simple linear interpolation)
+// Resample PCM to a new sample rate
 function resamplePcm(pcmBuffer, inRate, outRate, channels) {
   if (inRate === outRate) return pcmBuffer;
   const ratio = inRate / outRate;
@@ -68,8 +68,16 @@ async function startListening(connection, player, guildId, client) {
       },
     });
 
+    // We'll collect raw packets and also try decoding per packet
     const packets = [];
-    audioStream.on('data', (packet) => packets.push(packet));
+    let firstPacket = null;
+    audioStream.on('data', (packet) => {
+      packets.push(packet);
+      if (!firstPacket) {
+        firstPacket = packet;
+        console.log(`First packet size: ${packet.length}, first 20 bytes: ${packet.slice(0, 20).toString('hex')}`);
+      }
+    });
     audioStream.on('error', (err) => console.error('Audio stream error:', err));
 
     audioStream.on('end', async () => {
@@ -80,38 +88,48 @@ async function startListening(connection, player, guildId, client) {
           return;
         }
 
-        console.log(`Received ${packets.length} Opus packets, first size: ${packets[0]?.length}`);
+        console.log(`Received ${packets.length} Opus packets`);
 
-        // Decode Opus to PCM (48kHz stereo)
+        // Try to decode each packet individually to see if any succeed
+        let anyValid = false;
+        const pcmChunks = [];
+        const encoder = new OpusEncoder(48000, 2);
+        for (let i = 0; i < Math.min(packets.length, 5); i++) {
+          try {
+            const pcm = encoder.decode(packets[i]);
+            pcmChunks.push(pcm);
+            anyValid = true;
+            console.log(`Packet ${i} decoded OK, PCM size: ${pcm.length}`);
+          } catch (err) {
+            console.log(`Packet ${i} decode failed:`, err.message);
+          }
+        }
+        if (!anyValid) {
+          console.error('No packet could be decoded as Opus');
+          processingUsers.delete(userId);
+          return;
+        }
+
+        // Now try full stream decode using prism (with frameSize: 960)
         let pcmBuffer = null;
-
-        // Try prism first
         try {
-          const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: null });
-          const pcmChunks = [];
-          decoder.on('data', (chunk) => pcmChunks.push(chunk));
+          const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 });
+          const pcmChunksFull = [];
+          decoder.on('data', (chunk) => pcmChunksFull.push(chunk));
           decoder.on('error', (err) => { throw err; });
           for (const packet of packets) decoder.write(packet);
           decoder.end();
-          pcmBuffer = Buffer.concat(pcmChunks);
-          console.log(`Prism decoded: ${pcmBuffer.length} bytes PCM`);
+          pcmBuffer = Buffer.concat(pcmChunksFull);
+          console.log(`Full stream prism decode: ${pcmBuffer.length} bytes PCM`);
         } catch (err) {
-          console.error('Prism decode error:', err.message);
-        }
-
-        // Fallback to OpusEncoder
-        if (!pcmBuffer || pcmBuffer.length === 0) {
-          try {
-            const encoder = new OpusEncoder(48000, 2);
-            const pcmChunks = [];
-            for (const packet of packets) {
-              const pcm = encoder.decode(packet);
-              pcmChunks.push(pcm);
-            }
+          console.error('Full stream prism decode error:', err.message);
+          // Fallback to per-packet collected chunks
+          if (pcmChunks.length) {
             pcmBuffer = Buffer.concat(pcmChunks);
-            console.log(`OpusEncoder decoded: ${pcmBuffer.length} bytes PCM`);
-          } catch (err) {
-            console.error('OpusEncoder decode error:', err.message);
+            console.log(`Using per-packet decoded PCM (${pcmBuffer.length} bytes)`);
+          } else {
+            processingUsers.delete(userId);
+            return;
           }
         }
 
@@ -126,7 +144,7 @@ async function startListening(connection, player, guildId, client) {
         const resampledPcm = resamplePcm(monoPcm, 48000, 16000, 1);
         console.log(`Resampled to 16kHz mono, size: ${resampledPcm.length} bytes`);
 
-        // Create WAV (16kHz, mono)
+        // Create WAV
         const wavBuffer = pcmToWav(resampledPcm, 16000, 1);
         console.log(`WAV buffer size: ${wavBuffer.length} bytes`);
 

@@ -13,10 +13,9 @@ const {
 } = require('@discordjs/voice');
 const { startListening } = require('../../utils/voice/listen');
 const { getTTSAudio } = require('../../utils/tts');
-const { Readable } = require('stream');
 
-// Helper to play a short TTS welcome message (uses the same gTTS)
 async function playWelcomeMessage(player, text) {
+  console.log('Attempting to play welcome message');
   try {
     const audioStream = await getTTSAudio(text);
     const resource = createAudioResource(audioStream, { inputType: StreamType.Arbitrary });
@@ -75,11 +74,9 @@ module.exports = {
       const player = createAudioPlayer();
       connection.subscribe(player);
 
-      // Play welcome message after 1 second
       setTimeout(() => {
-        console.log('Attempting to play welcome message');
         playWelcomeMessage(player, 'Je suis connecté au salon vocal.');
-    }, 1000);
+      }, 1000);
 
       await startListening(connection, player, interaction.guild.id, interaction.client);
 
