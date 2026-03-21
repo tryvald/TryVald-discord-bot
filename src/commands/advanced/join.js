@@ -75,7 +75,7 @@ module.exports = {
       connection.subscribe(player);
 
       setTimeout(() => {
-        playWelcomeMessage(player, 'Je suis connecté au salon vocal.');
+        playWelcomeMessage(player, 'Prout Prout Prout Prout Prout Prout Prout Prout Prout Prout caca.');
       }, 1000);
 
       await startListening(connection, player, interaction.guild.id, interaction.client);
